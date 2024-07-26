@@ -1,0 +1,112 @@
+                                                                          Step 1: Loading the data
+
+
+# Import necessary libraries
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, sum as spark_sum, avg, window, count
+
+# Initialize Spark session
+spark = SparkSession.builder \
+    .appName("NYC Taxi Data Analysis") \
+    .getOrCreate()
+
+# Load the data into a DataFrame
+df = spark.read.option("header", "true").csv("path_to_nyc_taxi_data.csv")
+
+# Show a sample of the data
+df.show(5)
+
+
+
+                                                                          Step 2: Query 1 - Add a "Revenue" column
+
+
+
+# Adding a Revenue column
+df = df.withColumn(
+    "Revenue", 
+    col("Fare_amount") + col("Extra") + col("MTA_tax") + 
+    col("Improvement_surcharge") + col("Tip_amount") + 
+    col("Tolls_amount") + col("Total_amount")
+)
+df.show(5)
+
+
+
+
+
+                                                                         Step 3: Query 2 - Increasing count of total passengers by area
+
+# Group by area and count total passengers
+df_area_passengers = df.groupBy("pickup_area").agg(spark_sum("passenger_count").alias("total_passengers"))
+df_area_passengers.show(5)
+
+
+
+
+                                                                         Step 4: Query 3 - Realtime average fare/total earning amount earned by 2 vendors
+
+
+# Calculate average fare and total earnings by vendor
+df_avg_fare = df.groupBy("VendorID").agg(avg("Total_amount").alias("avg_total_amount"))
+df_avg_fare.show(5)
+
+
+
+
+                                                                         Step 5: Query 4 - Moving count of payments made by each payment mode
+
+
+from pyspark.sql.window import Window
+from pyspark.sql.functions import row_number
+
+# Window specification
+window_spec = Window.partitionBy("payment_type").orderBy("tpep_pickup_datetime")
+
+# Moving count of payments by each payment mode
+df_payment_count = df.withColumn("payment_count", row_number().over(window_spec))
+df_payment_count.show(5)
+
+
+
+
+                                                                        Step 6: Query 5 - Highest two gaining vendors on a particular date
+
+
+# Filter data for a particular date
+df_filtered_date = df.filter(col("tpep_pickup_datetime").cast("date") == "YYYY-MM-DD")
+
+# Group by vendor and aggregate the required metrics
+df_vendors = df_filtered_date.groupBy("VendorID").agg(
+    spark_sum("Revenue").alias("total_revenue"),
+    spark_sum("passenger_count").alias("total_passengers"),
+    spark_sum("trip_distance").alias("total_distance")
+)
+
+# Get the top 2 vendors
+df_top_vendors = df_vendors.orderBy(col("total_revenue").desc()).limit(2)
+df_top_vendors.show(5)
+
+
+
+
+
+                                                                       Step 7: Query 6 - Most number of passengers between a route of two locations
+
+
+# Group by route (pickup and dropoff locations) and count passengers
+df_route_passengers = df.groupBy("pickup_location", "dropoff_location").agg(spark_sum("passenger_count").alias("total_passengers"))
+df_route_passengers.orderBy(col("total_passengers").desc()).show(5)
+
+
+
+
+                                                                      Step 8: Query 7 - Get top pickup locations with most passengers in last 5/10 seconds
+
+
+# Window specification for the last 10 seconds
+window_spec_last_10_sec = Window.orderBy("tpep_pickup_datetime").rangeBetween(-10, 0)
+
+# Calculate the total passengers for each pickup location in the last 10 seconds
+df_top_pickups_10_sec = df.withColumn("total_passengers_last_10_sec", spark_sum("passenger_count").over(window_spec_last_10_sec))
+df_top_pickups_10_sec.orderBy(col("total_passengers_last_10_sec").desc()).show(5)
